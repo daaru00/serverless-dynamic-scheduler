@@ -1,0 +1,18 @@
+StartAt: WaitUntilDate
+States:
+
+  WaitUntilDate:
+    Type: Wait
+    TimestampPath: $.timestamp
+    Next: SendCallbackEvent
+
+  SendCallbackEvent:
+    Type: Task
+    Resource: 'arn:aws:states:::events:putEvents'
+    Parameters:
+      Entries:
+        - EventBusName: "${EventBusName}"
+          Source: "${EventSource}" 
+          DetailType: "Schedule Tick"
+          Detail.$: $.schedule
+    End: true

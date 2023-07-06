@@ -1,0 +1,9 @@
+{
+  "name": "routine",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "cron": "^2.1.0",
+    "parse-duration": "^1.0.2"
+  }
+}

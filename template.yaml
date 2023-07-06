@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: "AWS::Serverless-2016-10-31"
+
+Description: Dynamic Scheduler
+
+Parameters:
+  EventBusName:
+    Type: String
+    Description: "The event bus name to connect the integration to"
+    Default: "default"
+
+Globals:
+  Function:
+    Runtime: "nodejs16.x"
+    CodeUri: "./src"
+    Timeout: 6
+    Tracing: Active
+    Environment:
+      Variables:
+        EVENT_BUS_NAME: !Ref EventBusName
+        EVENT_SOURCE: !Sub "com.${AWS::StackName}"
+
+Resources:
+
+  ScheduleTable: 
+    Type: AWS::DynamoDB::Table
+    Properties: 
+      TableName: !Ref AWS::StackName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: "id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "id"
+          KeyType: "HASH"
+
+  StartFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-start"
+      Handler: events/start.handler
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref SchedulerStateMachine
+          TABLE_NAME: !Ref ScheduleTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScheduleTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBusName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+                - states:StopExecution
+                - states:StartExecution
+              Resource: '*'
+      Events:
+        EventReceived:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref EventBusName
+            Pattern:
+              source:
+                - !Sub "com.${AWS::StackName}"
+              detail-type: 
+                - "Schedule Start"
+
+  TickFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-tick"
+      Handler: events/tick.handler
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref SchedulerStateMachine
+          TABLE_NAME: !Ref ScheduleTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScheduleTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBusName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:StartExecution
+              Resource: '*'
+      Events:
+        EventReceived:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref EventBusName
+            Pattern:
+              source:
+                - !Sub "org.${AWS::StackName}"
+              detail-type: 
+                - "Schedule Tick"
+
+  StopFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-stop"
+      Handler: events/stop.handler
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref SchedulerStateMachine
+          TABLE_NAME: !Ref ScheduleTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ScheduleTable
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBusName
+        - Statement:
+            - Effect: Allow
+              Action:
+                - states:DescribeExecution
+                - states:StopExecution
+              Resource: '*'
+      Events:
+        EventReceived:
+          Type: EventBridgeRule
+          Properties:
+            EventBusName: !Ref EventBusName
+            Pattern:
+              detail-type: 
+                - "Schedule Stop"
+
+  SchedulerStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: !Ref AWS::StackName
+      DefinitionUri: states/scheduler.asl.yaml
+      DefinitionSubstitutions:
+        EventBusName: !Ref EventBusName
+        EventSource: !Sub "org.${AWS::StackName}"
+      Policies:
+        - EventBridgePutEventsPolicy:
+            EventBusName: !Ref EventBusName
